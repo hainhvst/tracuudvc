@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Tra cứu chứng từ - KBNN</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow-md">
+        <h2 class="text-2xl font-bold mb-6 text-blue-700">Hệ thống Tra cứu Chứng từ</h2>
+        
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <input type="text" id="ma_qhns" placeholder="Mã QHNS" class="border p-2 rounded">
+            <input type="date" id="tu_ngay" class="border p-2 rounded">
+            <input type="date" id="den_ngay" class="border p-2 rounded">
+        </div>
+        <button onclick="handleSearch()" id="btnSearch" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">Tra cứu</button>
+
+        <div id="status" class="mt-4 text-sm italic text-gray-600"></div>
+
+        <table class="w-full mt-8 border-collapse border border-gray-200 hidden" id="resultTable">
+            <thead>
+                <tr class="bg-gray-100">
+                    <th class="border p-2">Mã hồ sơ</th>
+                    <th class="border p-2">Số CT</th>
+                    <th class="border p-2">Tên chứng từ</th>
+                    <th class="border p-2">Ngày gửi</th>
+                    <th class="border p-2">Tải về</th>
+                </tr>
+            </thead>
+            <tbody id="resultBody"></tbody>
+        </table>
+    </div>
+
+    <script>
+        const SB_URL = "YOUR_SUPABASE_URL";
+        const SB_KEY = "YOUR_SUPABASE_ANON_KEY";
+        const supabase = supabase.createClient(SB_URL, SB_KEY);
+
+        async function handleSearch() {
+            const ma = document.getElementById('ma_qhns').value;
+            const tu = new Date(document.getElementById('tu_ngay').value);
+            const den = new Date(document.getElementById('den_ngay').value);
+
+            // Kiểm tra giới hạn 30 ngày
+            const diffDays = Math.ceil((den - tu) / (1000 * 60 * 60 * 24));
+            if (diffDays > 30 || diffDays < 0) {
+                alert("Khoảng cách ngày phải từ 0 đến 30 ngày!"); return;
+            }
+
+            // 1. Gửi yêu cầu vào Supabase
+            const { data, error } = await supabase.from('tra_cuu_requests').insert([
+                { ma_qhns: ma, tu_ngay: tu.toISOString(), den_ngay: den.toISOString(), status: 'pending' }
+            ]).select();
+
+            if (error) return alert("Lỗi gửi yêu cầu!");
+            const requestId = data[0].id;
+            document.getElementById('status').innerText = "Đang kết nối Database nội bộ và tải file...";
+
+            // 2. Lắng nghe thay đổi trạng thái (Realtime)
+            const subscription = supabase
+                .channel('schema-db-changes')
+                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tra_cuu_requests', filter: `id=eq.${requestId}` }, 
+                payload => {
+                    if (payload.new.status === 'completed') {
+                        renderResults(payload.new);
+                        subscription.unsubscribe();
+                    }
+                }).subscribe();
+        }
+
+        function renderResults(data) {
+            document.getElementById('status').innerText = "Đã hoàn thành!";
+            const table = document.getElementById('resultTable');
+            const tbody = document.getElementById('resultBody');
+            table.classList.remove('hidden');
+            
+            // Giả sử result_data chứa mảng các bản ghi
+            tbody.innerHTML = data.result_data.map(item => `
+                <tr>
+                    <td class="border p-2 text-center">${item.ma_hs}</td>
+                    <td class="border p-2 text-center">${item.so_ct}</td>
+                    <td class="border p-2">${item.ten_ct}</td>
+                    <td class="border p-2 text-center">${item.ngay_gui}</td>
+                    <td class="border p-2 text-center">
+                        <a href="${data.file_url}" target="_blank" class="text-blue-500 underline">Tải file</a>
+                    </td>
+                </tr>
+            `).join('');
+        }
+    </script>
+</body>
+</html>
