@@ -6,35 +6,71 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-gray-100 p-8">
+<body class="bg-[#f0f4f8] p-8 font-sans text-gray-800">
 
-    <div id="loginSection" class="max-w-md mx-auto bg-white p-6 rounded shadow mt-20">
-        <h2 class="text-xl font-bold mb-4 text-center">Đăng nhập Hệ thống</h2>
+    <div id="loginSection" class="max-w-md mx-auto bg-white p-8 rounded-lg shadow-md mt-20">
+        <h2 class="text-2xl font-bold mb-6 text-center text-[#1a56db]">Đăng nhập Hệ thống</h2>
         <div class="mb-4">
-            <label class="block font-semibold mb-1">Email</label>
-            <input type="email" id="email" class="border p-2 rounded w-full" placeholder="admin@kho-bac.vn">
+            <label class="block font-semibold mb-1 text-sm text-gray-700">Email</label>
+            <input type="email" id="email" class="border p-2 rounded w-full focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="admin@kho-bac.vn">
         </div>
-        <div class="mb-4">
-            <label class="block font-semibold mb-1">Mật khẩu</label>
-            <input type="password" id="password" class="border p-2 rounded w-full" placeholder="******">
+        <div class="mb-6">
+            <label class="block font-semibold mb-1 text-sm text-gray-700">Mật khẩu</label>
+            <input type="password" id="password" class="border p-2 rounded w-full focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="******">
         </div>
-        <button id="btnLogin" class="bg-blue-600 text-white w-full py-2 rounded hover:bg-blue-700 font-bold">
+        <button id="btnLogin" class="bg-[#1a56db] text-white w-full py-2 rounded font-bold hover:bg-blue-700 transition duration-200">
             Đăng nhập
         </button>
-        <p id="loginError" class="text-red-500 text-sm mt-2 hidden">Sai tài khoản hoặc mật khẩu!</p>
+        <p id="loginError" class="text-red-500 text-sm mt-3 text-center hidden font-medium">Sai tài khoản hoặc mật khẩu!</p>
     </div>
 
-    <div id="appSection" class="max-w-6xl mx-auto bg-white p-6 rounded shadow hidden">
-        <div class="flex justify-between items-center mb-4">
-            <h1 class="text-2xl font-bold">Tra Cứu Hồ Sơ Tài Liệu</h1>
-            <button id="btnLogout" class="text-gray-500 hover:text-red-600 underline">Đăng xuất</button>
+    <div id="appSection" class="max-w-[1200px] mx-auto bg-white p-6 rounded-lg shadow-md hidden">
+        
+        <div class="flex justify-between items-center mb-6 pb-4 border-b border-gray-200">
+            <h1 class="text-2xl font-bold text-[#1a56db]">🔍 Tra Cứu Hồ Sơ Tài Liệu – DVC KBNN</h1>
+            <button id="btnLogout" class="text-sm text-gray-500 hover:text-red-600 font-medium underline transition">Đăng xuất</button>
         </div>
         
-        <div class="flex gap-4 mb-6 items-end">
+        <div class="flex flex-wrap gap-6 mb-6 items-end bg-[#f8fafc] p-4 rounded border border-gray-200">
+            <div>
+                <label class="block font-bold text-sm mb-1 text-gray-700">Mã QHNS:</label>
+                <input type="text" id="ma_qhns" class="border border-gray-300 p-2 rounded w-40 focus:outline-none focus:ring-2 focus:ring-blue-500" value="1005959">
             </div>
-
+            <div>
+                <label class="block font-bold text-sm mb-1 text-gray-700">Từ ngày:</label>
+                <input type="date" id="tu_ngay" class="border border-gray-300 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+                <label class="block font-bold text-sm mb-1 text-gray-700">Đến ngày:</label>
+                <input type="date" id="den_ngay" class="border border-gray-300 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <button id="btnSearch" class="bg-[#1a56db] text-white font-bold px-6 py-2 rounded hover:bg-blue-700 transition duration-200 shadow-sm">
+                Tra cứu
+            </button>
         </div>
 
-    <script src="app.js"></script>
+        <div class="overflow-x-auto border border-gray-200 rounded">
+            <table class="w-full text-left border-collapse text-sm whitespace-nowrap">
+                <thead>
+                    <tr class="bg-[#eef2ff] border-b-2 border-blue-200 text-gray-700">
+                        <th class="p-3 border-r font-semibold text-center">STT</th>
+                        <th class="p-3 border-r font-semibold">Số chứng từ</th>
+                        <th class="p-3 border-r font-semibold">Tên chứng từ</th>
+                        <th class="p-3 border-r font-semibold text-center">Số TK số</th>
+                        <th class="p-3 border-r font-semibold text-center">Ngày hoàn thành</th>
+                        <th class="p-3 border-r font-semibold text-center">Ngày Tabmis TT</th>
+                        <th class="p-3 border-r font-semibold text-center">Trạng thái</th>
+                        <th class="p-3 border-r font-semibold text-right">Tổng số tiền</th>
+                        <th class="p-3 font-semibold text-center">Đường dẫn / Tải về</th>
+                    </tr>
+                </thead>
+                <tbody id="resultBody" class="divide-y divide-gray-200">
+                    <tr><td colspan="9" class="text-center p-6 text-gray-500 italic">Vui lòng nhập thông tin và bấm Tra cứu.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="app.js?v=1.1"></script>
 </body>
 </html>
