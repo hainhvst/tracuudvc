@@ -1,6 +1,8 @@
 const SUPABASE_URL = 'https://aogxafkugxpcahevjudg.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_HO4X6eWI757QbeedU2LLfw_ikknLNdf';
-const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Đổi tên biến thành supabaseClient để không trùng với biến supabase mặc định của CDN
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // Các thẻ UI
 const loginSection = document.getElementById('loginSection');
@@ -8,7 +10,7 @@ const appSection = document.getElementById('appSection');
 
 // 1. Kiểm tra xem user đã đăng nhập từ trước chưa (nhớ phiên)
 async function checkSession() {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await supabaseClient.auth.getSession();
     if (session) {
         showApp();
     } else {
@@ -24,7 +26,7 @@ document.getElementById('btnLogin').addEventListener('click', async () => {
     const errorMsg = document.getElementById('loginError');
 
     // Gọi API của Supabase để xác thực
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabaseClient.auth.signInWithPassword({
         email: email,
         password: password
     });
@@ -39,7 +41,7 @@ document.getElementById('btnLogin').addEventListener('click', async () => {
 
 // 3. Xử lý nút Đăng xuất
 document.getElementById('btnLogout').addEventListener('click', async () => {
-    await supabase.auth.signOut();
+    await supabaseClient.auth.signOut();
     showLogin();
 });
 
@@ -55,7 +57,8 @@ function showApp() {
 }
 
 // ----------------------------------------------------
-// (Giữ nguyên toàn bộ code logic của nút Tra cứu, Realtime, và Xem PDF ở dưới đây)
+// CODE LOGIC TRA CỨU
+// ----------------------------------------------------
 let currentRequestId = null;
 
 document.getElementById('btnSearch').addEventListener('click', async () => {
@@ -66,12 +69,17 @@ document.getElementById('btnSearch').addEventListener('click', async () => {
     document.getElementById('resultBody').innerHTML = '<tr><td colspan="9" class="text-center p-4">Đang gửi yêu cầu...</td></tr>';
 
     // 1. Tạo request mới trên Supabase
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
         .from('TraCuuRequests')
         .insert([{ ma_qhns, tu_ngay, den_ngay }])
         .select();
 
-    if (error) return alert("Lỗi tạo yêu cầu!");
+    if (error) {
+        alert("Lỗi tạo yêu cầu!");
+        console.error(error);
+        return;
+    }
+    
     currentRequestId = data[0].request_id;
 
     // 2. Lắng nghe thay đổi dữ liệu Realtime (Chỉ lắng nghe ID vừa tạo)
@@ -79,7 +87,7 @@ document.getElementById('btnSearch').addEventListener('click', async () => {
 });
 
 function listenToRealtime(reqId) {
-    supabase.channel('custom-all-channel')
+    supabaseClient.channel('custom-all-channel')
     .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'ChiTietChungTu', filter: `request_id=eq.${reqId}` },
@@ -92,32 +100,38 @@ function listenToRealtime(reqId) {
 }
 
 async function fetchAndRender(reqId) {
-    const { data } = await supabase.from('ChiTietChungTu').select('*').eq('request_id', reqId);
+    const { data } = await supabaseClient.from('ChiTietChungTu').select('*').eq('request_id', reqId);
     
     const tbody = document.getElementById('resultBody');
     tbody.innerHTML = ''; // Xoá cũ
+
+    // Kiểm tra nếu chưa có data từ BE trả về
+    if (!data || data.length === 0) {
+         tbody.innerHTML = '<tr><td colspan="9" class="text-center p-4 text-gray-500">Hệ thống đang truy xuất dữ liệu, vui lòng chờ...</td></tr>';
+         return;
+    }
 
     data.forEach((row, index) => {
         let actionHtml = '';
         if (row.file_status === 'completed') {
             // Nút mở PDF dạng Blob
-            actionHtml = `<button onclick="viewPDFBlob('${row.file_url}')" class="text-blue-600 underline">📄 Xem File</button>`;
+            actionHtml = `<button onclick="viewPDFBlob('${row.file_url}')" class="text-blue-600 font-bold underline cursor-pointer">📄 Xem File</button>`;
         } else if (row.file_status === 'dvc_error' || row.file_status === 'supabase_error') {
-            actionHtml = `<span class="text-red-500">Lỗi</span> - <button onclick="retryFile('${row.id}')" class="font-bold cursor-pointer">🔄 Tải lại</button>`;
+            actionHtml = `<span class="text-red-500 font-semibold">Lỗi</span> - <button onclick="retryFile('${row.id}')" class="font-bold cursor-pointer hover:text-red-700">🔄 Tải lại</button>`;
         } else {
-            actionHtml = `<span class="text-gray-500">⏳ Đang xử lý...</span>`;
+            actionHtml = `<span class="text-gray-500 italic">⏳ Đang xử lý...</span>`;
         }
 
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td class="p-2 border text-center">${index + 1}</td>
-            <td class="p-2 border">${row.so_chung_tu}</td>
-            <td class="p-2 border">${row.chi_tiet}</td>
-            <td class="p-2 border">${row.sotk_so}</td>
-            <td class="p-2 border">${row.ngay_hoan_thanh}</td>
-            <td class="p-2 border">${row.ngay_tabmis_thanh_toan || ''}</td>
-            <td class="p-2 border">${row.ten_trang_thai}</td>
-            <td class="p-2 border font-mono text-right">${Number(row.tong_so_tien).toLocaleString('vi-VN')}</td>
+            <td class="p-2 border font-medium">${row.so_chung_tu || ''}</td>
+            <td class="p-2 border">${row.chi_tiet || ''}</td>
+            <td class="p-2 border text-center">${row.sotk_so || ''}</td>
+            <td class="p-2 border text-center">${row.ngay_hoan_thanh || ''}</td>
+            <td class="p-2 border text-center">${row.ngay_tabmis_thanh_toan || ''}</td>
+            <td class="p-2 border text-center">${row.ten_trang_thai || ''}</td>
+            <td class="p-2 border font-mono text-right text-green-700 font-semibold">${row.tong_so_tien ? Number(row.tong_so_tien).toLocaleString('vi-VN') : ''}</td>
             <td class="p-2 border text-center">${actionHtml}</td>
         `;
         tbody.appendChild(tr);
@@ -126,7 +140,7 @@ async function fetchAndRender(reqId) {
 
 // Hàm Retry
 window.retryFile = async (id) => {
-    await supabase.from('ChiTietChungTu').update({ file_status: 'retry_pending' }).eq('id', id);
+    await supabaseClient.from('ChiTietChungTu').update({ file_status: 'retry_pending' }).eq('id', id);
 };
 
 // Hàm fetch Blob và mở tab mới xem PDF
