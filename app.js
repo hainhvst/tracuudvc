@@ -114,8 +114,10 @@ async function fetchAndRender(reqId) {
     data.forEach((row, index) => {
         let actionHtml = '';
         if (row.file_status === 'completed') {
-            // Nút mở PDF dạng Blob
             actionHtml = `<button onclick="viewPDFBlob('${row.file_url}')" class="text-blue-600 font-bold underline cursor-pointer">📄 Xem File</button>`;
+        } else if (row.file_status === 'no_file') {
+            // Hiển thị text mờ đi khi không có file
+            actionHtml = `<span class="text-gray-400 italic">Không có file đính kèm</span>`;
         } else if (row.file_status === 'dvc_error' || row.file_status === 'supabase_error') {
             actionHtml = `<span class="text-red-500 font-semibold">Lỗi</span> - <button onclick="retryFile('${row.id}')" class="font-bold cursor-pointer hover:text-red-700">🔄 Tải lại</button>`;
         } else {
