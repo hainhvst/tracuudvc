@@ -1,0 +1,148 @@
+const SUPABASE_URL = 'https://aogxafkugxpcahevjudg.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_HO4X6eWI757QbeedU2LLfw_ikknLNdf';
+const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Các thẻ UI
+const loginSection = document.getElementById('loginSection');
+const appSection = document.getElementById('appSection');
+
+// 1. Kiểm tra xem user đã đăng nhập từ trước chưa (nhớ phiên)
+async function checkSession() {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+        showApp();
+    } else {
+        showLogin();
+    }
+}
+checkSession(); // Chạy ngay khi mở trang
+
+// 2. Xử lý nút Đăng nhập
+document.getElementById('btnLogin').addEventListener('click', async () => {
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
+    const errorMsg = document.getElementById('loginError');
+
+    // Gọi API của Supabase để xác thực
+    const { data, error } = await supabase.auth.signInWithPassword({
+        email: email,
+        password: password
+    });
+
+    if (error) {
+        errorMsg.classList.remove('hidden');
+    } else {
+        errorMsg.classList.add('hidden');
+        showApp();
+    }
+});
+
+// 3. Xử lý nút Đăng xuất
+document.getElementById('btnLogout').addEventListener('click', async () => {
+    await supabase.auth.signOut();
+    showLogin();
+});
+
+// Hàm đổi giao diện
+function showLogin() {
+    loginSection.classList.remove('hidden');
+    appSection.classList.add('hidden');
+}
+
+function showApp() {
+    loginSection.classList.add('hidden');
+    appSection.classList.remove('hidden');
+}
+
+// ----------------------------------------------------
+// (Giữ nguyên toàn bộ code logic của nút Tra cứu, Realtime, và Xem PDF ở dưới đây)
+let currentRequestId = null;
+
+document.getElementById('btnSearch').addEventListener('click', async () => {
+    const ma_qhns = document.getElementById('ma_qhns').value;
+    const tu_ngay = document.getElementById('tu_ngay').value;
+    const den_ngay = document.getElementById('den_ngay').value;
+
+    document.getElementById('resultBody').innerHTML = '<tr><td colspan="9" class="text-center p-4">Đang gửi yêu cầu...</td></tr>';
+
+    // 1. Tạo request mới trên Supabase
+    const { data, error } = await supabase
+        .from('TraCuuRequests')
+        .insert([{ ma_qhns, tu_ngay, den_ngay }])
+        .select();
+
+    if (error) return alert("Lỗi tạo yêu cầu!");
+    currentRequestId = data[0].request_id;
+
+    // 2. Lắng nghe thay đổi dữ liệu Realtime (Chỉ lắng nghe ID vừa tạo)
+    listenToRealtime(currentRequestId);
+});
+
+function listenToRealtime(reqId) {
+    supabase.channel('custom-all-channel')
+    .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'ChiTietChungTu', filter: `request_id=eq.${reqId}` },
+        (payload) => {
+            // Mỗi khi BE xử lý xong 1 dòng hoặc insert dòng mới, FE tự động gọi hàm render lại bảng
+            fetchAndRender(reqId);
+        }
+    )
+    .subscribe();
+}
+
+async function fetchAndRender(reqId) {
+    const { data } = await supabase.from('ChiTietChungTu').select('*').eq('request_id', reqId);
+    
+    const tbody = document.getElementById('resultBody');
+    tbody.innerHTML = ''; // Xoá cũ
+
+    data.forEach((row, index) => {
+        let actionHtml = '';
+        if (row.file_status === 'completed') {
+            // Nút mở PDF dạng Blob
+            actionHtml = `<button onclick="viewPDFBlob('${row.file_url}')" class="text-blue-600 underline">📄 Xem File</button>`;
+        } else if (row.file_status === 'dvc_error' || row.file_status === 'supabase_error') {
+            actionHtml = `<span class="text-red-500">Lỗi</span> - <button onclick="retryFile('${row.id}')" class="font-bold cursor-pointer">🔄 Tải lại</button>`;
+        } else {
+            actionHtml = `<span class="text-gray-500">⏳ Đang xử lý...</span>`;
+        }
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td class="p-2 border text-center">${index + 1}</td>
+            <td class="p-2 border">${row.so_chung_tu}</td>
+            <td class="p-2 border">${row.chi_tiet}</td>
+            <td class="p-2 border">${row.sotk_so}</td>
+            <td class="p-2 border">${row.ngay_hoan_thanh}</td>
+            <td class="p-2 border">${row.ngay_tabmis_thanh_toan || ''}</td>
+            <td class="p-2 border">${row.ten_trang_thai}</td>
+            <td class="p-2 border font-mono text-right">${Number(row.tong_so_tien).toLocaleString('vi-VN')}</td>
+            <td class="p-2 border text-center">${actionHtml}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+// Hàm Retry
+window.retryFile = async (id) => {
+    await supabase.from('ChiTietChungTu').update({ file_status: 'retry_pending' }).eq('id', id);
+};
+
+// Hàm fetch Blob và mở tab mới xem PDF
+window.viewPDFBlob = async (url) => {
+    try {
+        const response = await fetch(url);
+        const blob = await response.blob();
+        
+        // Chỉ định chuẩn MIME type là application/pdf
+        const file = new Blob([blob], { type: 'application/pdf' });
+        const fileURL = URL.createObjectURL(file);
+        
+        // Mở trong tab mới
+        window.open(fileURL, '_blank');
+    } catch (error) {
+        alert("Không thể tải và hiển thị file PDF.");
+        console.error(error);
+    }
+};
