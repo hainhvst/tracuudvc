@@ -60,13 +60,26 @@ function showApp() {
 // CODE LOGIC TRA CỨU
 // ----------------------------------------------------
 let currentRequestId = null;
+let requestPollingInterval = null;
 
 document.getElementById('btnSearch').addEventListener('click', async () => {
     const ma_qhns = document.getElementById('ma_qhns').value;
     const tu_ngay = document.getElementById('tu_ngay').value;
     const den_ngay = document.getElementById('den_ngay').value;
 
-    document.getElementById('resultBody').innerHTML = '<tr><td colspan="9" class="text-center p-4">Đang gửi yêu cầu...</td></tr>';
+    // Hiển thị hiệu ứng Đang tải đẹp mắt
+    document.getElementById('resultBody').innerHTML = `
+        <tr>
+            <td colspan="9" class="text-center p-8">
+                <div class="flex flex-col items-center justify-center">
+                    <svg class="animate-spin h-8 w-8 text-[#1a56db] mb-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                    <span class="text-[#1a56db] font-semibold text-sm">Đang truy vấn Kho bạc, vui lòng chờ...</span>
+                </div>
+            </td>
+        </tr>`;
 
     // 1. Tạo request mới trên Supabase
     const { data, error } = await supabaseClient
@@ -82,8 +95,26 @@ document.getElementById('btnSearch').addEventListener('click', async () => {
     
     currentRequestId = data[0].request_id;
 
-    // 2. Lắng nghe thay đổi dữ liệu Realtime (Chỉ lắng nghe ID vừa tạo)
+    // 2. Lắng nghe Realtime cho từng file chứng từ
     listenToRealtime(currentRequestId);
+
+    // 3. Cơ chế Polling: Hỏi thăm trạng thái tổng quát để bắt lỗi "Không có dữ liệu" hoặc "Mất gói tin realtime"
+    if(requestPollingInterval) clearInterval(requestPollingInterval);
+    
+    requestPollingInterval = setInterval(async () => {
+        const { data: reqData } = await supabaseClient.from('TraCuuRequests').select('status').eq('request_id', currentRequestId).single();
+        if (reqData) {
+            if (reqData.status === 'no_data') {
+                clearInterval(requestPollingInterval);
+                document.getElementById('resultBody').innerHTML = `
+                    <tr><td colspan="9" class="text-center p-6 text-red-500 font-bold bg-red-50">Không tìm thấy chứng từ nào trong khoảng thời gian này.</td></tr>`;
+            } else if (reqData.status === 'completed') {
+                // Quét xong toàn bộ, gọi render ngay lập tức
+                clearInterval(requestPollingInterval);
+                fetchAndRender(currentRequestId);
+            }
+        }
+    }, 1500); // Quét mỗi 1.5 giây
 });
 
 function listenToRealtime(reqId) {
@@ -92,7 +123,6 @@ function listenToRealtime(reqId) {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'ChiTietChungTu', filter: `request_id=eq.${reqId}` },
         (payload) => {
-            // Mỗi khi BE xử lý xong 1 dòng hoặc insert dòng mới, FE tự động gọi hàm render lại bảng
             fetchAndRender(reqId);
         }
     )
@@ -100,15 +130,12 @@ function listenToRealtime(reqId) {
 }
 
 async function fetchAndRender(reqId) {
-    const { data } = await supabaseClient.from('ChiTietChungTu').select('*').eq('request_id', reqId);
+    const { data } = await supabaseClient.from('ChiTietChungTu').select('*').eq('request_id', reqId).order('so_chung_tu', { ascending: true });
     
     const tbody = document.getElementById('resultBody');
-    tbody.innerHTML = ''; // Xoá cũ
+    if (!data || data.length === 0) return; // Nếu rỗng thì nhường cho cơ chế Polling xử lý ở trên
 
-    if (!data || data.length === 0) {
-         tbody.innerHTML = '<tr><td colspan="9" class="text-center p-4 text-gray-500 text-sm">Hệ thống đang truy xuất dữ liệu, vui lòng chờ...</td></tr>';
-         return;
-    }
+    tbody.innerHTML = ''; // Xoá cũ
 
     data.forEach((row, index) => {
         let actionHtml = '';
@@ -126,38 +153,34 @@ async function fetchAndRender(reqId) {
         } else if (row.file_status === 'dvc_error' || row.file_status === 'supabase_error') {
             actionHtml = `<span class="text-red-500 font-semibold">Lỗi</span> - <button onclick="retryFile('${row.id}')" class="font-bold cursor-pointer hover:text-red-700">🔄 Tải lại</button>`;
         } else {
-            actionHtml = `<span class="text-gray-500 italic">⏳ Đang tải...</span>`;
+            // Hiển thị hiệu ứng xoay nhỏ ngay trên từng dòng chứng từ
+            actionHtml = `
+                <div class="flex items-center justify-center space-x-1">
+                    <svg class="animate-spin h-4 w-4 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                    <span class="text-gray-500 italic text-xs">Đang tải...</span>
+                </div>`;
         }
 
         const tr = document.createElement('tr');
-        // bg-white quan trọng để khi cột sticky trượt qua các cột khác không bị đè chữ
         tr.className = "text-[11px] sm:text-xs bg-white hover:bg-blue-50 transition-colors";
         
         tr.innerHTML = `
             <td class="p-2 border text-center">${index + 1}</td>
             <td class="p-2 border font-medium">${row.so_chung_tu || ''}</td>
-            
             <td class="border p-0">
-                <div class="p-2 w-full h-full overflow-hidden text-ellipsis whitespace-nowrap" title="${row.chi_tiet || ''}">
-                    ${row.chi_tiet || ''}
-                </div>
+                <div class="p-2 w-full h-full overflow-hidden text-ellipsis whitespace-nowrap" title="${row.chi_tiet || ''}">${row.chi_tiet || ''}</div>
             </td>
-            
             <td class="p-2 border text-center">${row.sotk_so || ''}</td>
             <td class="p-2 border text-center">${row.ngay_hoan_thanh || ''}</td>
             <td class="p-2 border text-center">${row.ngay_tabmis_thanh_toan || ''}</td>
-            
             <td class="border p-0">
-                <div class="p-2 w-full h-full overflow-hidden text-ellipsis whitespace-nowrap" title="${row.ten_trang_thai || ''}">
-                    ${row.ten_trang_thai || ''}
-                </div>
+                <div class="p-2 w-full h-full overflow-hidden text-ellipsis whitespace-nowrap" title="${row.ten_trang_thai || ''}">${row.ten_trang_thai || ''}</div>
             </td>
-            
             <td class="p-2 border font-mono text-right text-green-700 font-semibold">${row.tong_so_tien ? Number(row.tong_so_tien).toLocaleString('vi-VN') : ''}</td>
-            
-            <td class="p-2 border-l border-b text-center whitespace-nowrap sticky right-0 bg-inherit shadow-[-2px_0_5px_rgba(0,0,0,0.05)] z-10">
-                ${actionHtml}
-            </td>
+            <td class="p-2 border-l border-b text-center whitespace-nowrap sticky right-0 bg-inherit shadow-[-2px_0_5px_rgba(0,0,0,0.05)] z-10">${actionHtml}</td>
         `;
         tbody.appendChild(tr);
     });
