@@ -57,15 +57,22 @@ function showApp() {
 }
 
 // ----------------------------------------------------
-// CODE LOGIC TRA CỨU (TỐI ƯU REALTIME, BỎ POLLING)
+// CODE LOGIC TRA CỨU (KẾT HỢP REALTIME & SMART POLLING)
 // ----------------------------------------------------
 let currentRequestId = null;
-let currentChannel = null; // Biến quản lý kênh lắng nghe để tránh trùng lặp
+let currentChannel = null;
+let isRequestFinished = false; // Cờ đánh dấu để không bị trùng lặp hiển thị
+let pollingTimer = null;
 
 document.getElementById('btnSearch').addEventListener('click', async () => {
     const ma_qhns = document.getElementById('ma_qhns').value;
     const tu_ngay = document.getElementById('tu_ngay').value;
     const den_ngay = document.getElementById('den_ngay').value;
+
+    // 1. Reset các trạng thái cũ
+    isRequestFinished = false;
+    if(pollingTimer) clearTimeout(pollingTimer);
+    console.log("⏳ Bắt đầu gửi yêu cầu tra cứu...");
 
     // Hiển thị hiệu ứng Đang tải đẹp mắt
     document.getElementById('resultBody').innerHTML = `
@@ -81,7 +88,7 @@ document.getElementById('btnSearch').addEventListener('click', async () => {
             </td>
         </tr>`;
 
-    // 1. Tạo request mới trên Supabase
+    // 2. Tạo request mới trên Supabase
     const { data, error } = await supabaseClient
         .from('TraCuuRequests')
         .insert([{ ma_qhns, tu_ngay, den_ngay }])
@@ -94,19 +101,23 @@ document.getElementById('btnSearch').addEventListener('click', async () => {
     }
     
     currentRequestId = data[0].request_id;
+    console.log("🔑 Đã tạo Request ID:", currentRequestId);
 
-    // 2. Kích hoạt lắng nghe Realtime thay cho Polling
+    // 3. Kích hoạt lắng nghe Realtime thông minh
     setupRealtimeListener(currentRequestId);
+
+    // 4. Khởi động Smart Polling (Dự phòng trường hợp Realtime của Supabase bị lỗi)
+    startSmartPolling(currentRequestId);
 });
 
-// Hàm thiết lập Realtime thông minh (Khắc phục lỗi Race Condition)
+// Hàm thiết lập Realtime
 function setupRealtimeListener(reqId) {
     if (currentChannel) {
         supabaseClient.removeChannel(currentChannel);
     }
 
     currentChannel = supabaseClient.channel(`req-channel-${reqId}`)
-        // Lắng nghe 1: Khi BE xử lý xong/update từng file chứng từ
+        // Lắng nghe 1: Khi có chứng từ mới
         .on(
             'postgres_changes',
             { event: '*', schema: 'public', table: 'ChiTietChungTu', filter: `request_id=eq.${reqId}` },
@@ -114,43 +125,78 @@ function setupRealtimeListener(reqId) {
                 fetchAndRender(reqId);
             }
         )
-        // Lắng nghe 2: Khi BE báo trạng thái tổng của Request
+        // Lắng nghe 2: Khi trạng thái tổng thay đổi (BỎ filter UUID để lách lỗi của Supabase)
         .on(
             'postgres_changes',
-            { event: 'UPDATE', schema: 'public', table: 'TraCuuRequests', filter: `request_id=eq.${reqId}` },
+            { event: 'UPDATE', schema: 'public', table: 'TraCuuRequests' },
             (payload) => {
-                handleRequestStatus(payload.new.status, reqId);
-            }
-        )
-        // Bắt buộc kiểm tra lại trạng thái ngay khi vừa kết nối Websocket xong
-        .subscribe(async (status) => {
-            if (status === 'SUBSCRIBED') {
-                // Đọc lại DB để xem BE đã cập nhật trạng thái trong lúc FE đang mở kết nối không
-                const { data } = await supabaseClient.from('TraCuuRequests').select('status').eq('request_id', reqId).single();
-                if (data) {
-                    handleRequestStatus(data.status, reqId);
+                if (payload.new.request_id === reqId) {
+                    console.log("⚡ Realtime bắt được trạng thái mới ->", payload.new.status);
+                    handleRequestStatus(payload.new.status, reqId);
                 }
             }
-        });
+        )
+        .subscribe();
 }
 
-// Tách logic xử lý trạng thái ra một hàm riêng cho gọn
+// Hàm xử lý hiển thị giao diện
 function handleRequestStatus(status, reqId) {
+    if (isRequestFinished) return; // Nếu đã xử lý xong rồi thì ngưng, không làm lại
+
     if (status === 'no_data') {
+        isRequestFinished = true;
+        console.log("🛑 Xử lý giao diện: Không có dữ liệu.");
         document.getElementById('resultBody').innerHTML = `
             <tr><td colspan="9" class="text-center p-6 text-red-500 font-bold bg-red-50">Không tìm thấy chứng từ nào trong khoảng thời gian này.</td></tr>`;
     } else if (status === 'completed') {
+        isRequestFinished = true;
+        console.log("✅ Xử lý giao diện: Có dữ liệu, bắt đầu render.");
         fetchAndRender(reqId);
     }
 }
 
+// Cơ chế Smart Polling chống Cache trình duyệt
+function startSmartPolling(reqId) {
+    async function checkDB() {
+        if (isRequestFinished) return;
+
+        try {
+            // Dùng time ISOString để ép trình duyệt không được dùng Cache (luôn lấy data mới)
+            const currentTime = new Date().toISOString();
+            const { data } = await supabaseClient
+                .from('TraCuuRequests')
+                .select('status')
+                .eq('request_id', reqId)
+                .lte('created_at', currentTime) 
+                .single();
+
+            if (data) {
+                console.log("🔄 Polling kiểm tra trạng thái:", data.status);
+                if (data.status === 'no_data' || data.status === 'completed') {
+                    handleRequestStatus(data.status, reqId);
+                    return; // Đạt mục tiêu thì dừng vòng lặp ngầm
+                }
+            }
+        } catch (err) {
+            console.error("Lỗi Polling:", err);
+        }
+
+        // Nếu chưa xong, gọi lại hàm này sau 2 giây
+        pollingTimer = setTimeout(checkDB, 2000);
+    }
+
+    // Chờ 3 giây đầu tiên mới bắt đầu hỏi thăm (nhường sân cho Realtime chạy trước)
+    pollingTimer = setTimeout(checkDB, 3000);
+}
+
+// Hàm lấy dữ liệu và hiển thị bảng (Giữ nguyên cấu trúc HTML như cũ)
 async function fetchAndRender(reqId) {
     const { data } = await supabaseClient.from('ChiTietChungTu').select('*').eq('request_id', reqId).order('so_chung_tu', { ascending: true });
     
     const tbody = document.getElementById('resultBody');
-    if (!data || data.length === 0) return; // Nhường cho sự kiện 'no_data' xử lý
+    if (!data || data.length === 0) return; 
 
-    tbody.innerHTML = ''; // Xoá cũ
+    tbody.innerHTML = ''; 
 
     data.forEach((row, index) => {
         let actionHtml = '';
@@ -168,7 +214,6 @@ async function fetchAndRender(reqId) {
         } else if (row.file_status === 'dvc_error' || row.file_status === 'supabase_error') {
             actionHtml = `<span class="text-red-500 font-semibold">Lỗi</span> - <button onclick="retryFile('${row.id}')" class="font-bold cursor-pointer hover:text-red-700">🔄 Tải lại</button>`;
         } else {
-            // Hiển thị hiệu ứng xoay nhỏ ngay trên từng dòng chứng từ
             actionHtml = `
                 <div class="flex items-center justify-center space-x-1">
                     <svg class="animate-spin h-4 w-4 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -201,31 +246,23 @@ async function fetchAndRender(reqId) {
     });
 }
 
-// Hàm Retry
+// ----------------------------------------------------
+// BỔ SUNG CÁC HÀM RETRY VÀ XEM PDF VÀO DƯỚI NÀY
+// ----------------------------------------------------
 window.retryFile = async (id) => {
     await supabaseClient.from('ChiTietChungTu').update({ file_status: 'retry_pending' }).eq('id', id);
 };
 
-// Bổ sung xử lý lỗi vào hàm fetch Blob
 window.viewPDFBlob = async (url) => {
     try {
         const response = await fetch(url);
-        
-        // Kiểm tra xem request có thành công không
-        if (!response.ok) {
-            throw new Error(`Mã lỗi HTTP: ${response.status}`);
-        }
-        
+        if (!response.ok) throw new Error(`Mã lỗi HTTP: ${response.status}`);
         const blob = await response.blob();
-        
-        // Cảnh báo nếu dữ liệu tải về không mang định dạng PDF
         if (blob.type !== 'application/pdf' && !blob.type.includes('pdf')) {
             console.warn("Cảnh báo: Tệp lấy về có thể không phải PDF hợp lệ. Loại MIME:", blob.type);
         }
-
         const file = new Blob([blob], { type: 'application/pdf' });
         const fileURL = URL.createObjectURL(file);
-        
         window.open(fileURL, '_blank');
     } catch (error) {
         alert("Không thể mở file. Có thể dữ liệu gốc bị hỏng hoặc cấu hình bảo mật chặn tải (CORS).");
