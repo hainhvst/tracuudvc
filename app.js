@@ -57,10 +57,10 @@ function showApp() {
 }
 
 // ----------------------------------------------------
-// CODE LOGIC TRA CỨU
+// CODE LOGIC TRA CỨU (TỐI ƯU REALTIME, BỎ POLLING)
 // ----------------------------------------------------
 let currentRequestId = null;
-let requestPollingInterval = null;
+let currentChannel = null; // Biến quản lý kênh lắng nghe để tránh trùng lặp
 
 document.getElementById('btnSearch').addEventListener('click', async () => {
     const ma_qhns = document.getElementById('ma_qhns').value;
@@ -95,45 +95,47 @@ document.getElementById('btnSearch').addEventListener('click', async () => {
     
     currentRequestId = data[0].request_id;
 
-    // 2. Lắng nghe Realtime cho từng file chứng từ
-    listenToRealtime(currentRequestId);
-
-    // 3. Cơ chế Polling: Hỏi thăm trạng thái tổng quát để bắt lỗi "Không có dữ liệu" hoặc "Mất gói tin realtime"
-    if(requestPollingInterval) clearInterval(requestPollingInterval);
-    
-    requestPollingInterval = setInterval(async () => {
-        const { data: reqData } = await supabaseClient.from('TraCuuRequests').select('status').eq('request_id', currentRequestId).single();
-        if (reqData) {
-            if (reqData.status === 'no_data') {
-                clearInterval(requestPollingInterval);
-                document.getElementById('resultBody').innerHTML = `
-                    <tr><td colspan="9" class="text-center p-6 text-red-500 font-bold bg-red-50">Không tìm thấy chứng từ nào trong khoảng thời gian này.</td></tr>`;
-            } else if (reqData.status === 'completed') {
-                // Quét xong toàn bộ, gọi render ngay lập tức
-                clearInterval(requestPollingInterval);
-                fetchAndRender(currentRequestId);
-            }
-        }
-    }, 1500); // Quét mỗi 1.5 giây
+    // 2. Kích hoạt lắng nghe Realtime thay cho Polling
+    setupRealtimeListener(currentRequestId);
 });
 
-function listenToRealtime(reqId) {
-    supabaseClient.channel('custom-all-channel')
-    .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'ChiTietChungTu', filter: `request_id=eq.${reqId}` },
-        (payload) => {
-            fetchAndRender(reqId);
-        }
-    )
-    .subscribe();
+// Hàm thiết lập Realtime thông minh
+function setupRealtimeListener(reqId) {
+    // Nếu người dùng bấm tra cứu liên tục, hủy kênh cũ để không bị loạn data
+    if (currentChannel) {
+        supabaseClient.removeChannel(currentChannel);
+    }
+
+    currentChannel = supabaseClient.channel(`req-channel-${reqId}`)
+        // Lắng nghe 1: Khi BE xử lý xong/update từng file chứng từ
+        .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'ChiTietChungTu', filter: `request_id=eq.${reqId}` },
+            (payload) => {
+                fetchAndRender(reqId);
+            }
+        )
+        // Lắng nghe 2: Khi BE báo trạng thái tổng của Request (Bắt chuẩn lỗi no_data)
+        .on(
+            'postgres_changes',
+            { event: 'UPDATE', schema: 'public', table: 'TraCuuRequests', filter: `request_id=eq.${reqId}` },
+            (payload) => {
+                if (payload.new.status === 'no_data') {
+                    document.getElementById('resultBody').innerHTML = `
+                        <tr><td colspan="9" class="text-center p-6 text-red-500 font-bold bg-red-50">Không tìm thấy chứng từ nào trong khoảng thời gian này.</td></tr>`;
+                } else if (payload.new.status === 'completed') {
+                    fetchAndRender(reqId);
+                }
+            }
+        )
+        .subscribe();
 }
 
 async function fetchAndRender(reqId) {
     const { data } = await supabaseClient.from('ChiTietChungTu').select('*').eq('request_id', reqId).order('so_chung_tu', { ascending: true });
     
     const tbody = document.getElementById('resultBody');
-    if (!data || data.length === 0) return; // Nếu rỗng thì nhường cho cơ chế Polling xử lý ở trên
+    if (!data || data.length === 0) return; // Nếu mảng rỗng thì nhường cho sự kiện 'no_data' xử lý ở trên
 
     tbody.innerHTML = ''; // Xoá cũ
 
