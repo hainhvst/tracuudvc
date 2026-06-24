@@ -105,36 +105,59 @@ async function fetchAndRender(reqId) {
     const tbody = document.getElementById('resultBody');
     tbody.innerHTML = ''; // Xoá cũ
 
-    // Kiểm tra nếu chưa có data từ BE trả về
     if (!data || data.length === 0) {
-         tbody.innerHTML = '<tr><td colspan="9" class="text-center p-4 text-gray-500">Hệ thống đang truy xuất dữ liệu, vui lòng chờ...</td></tr>';
+         tbody.innerHTML = '<tr><td colspan="9" class="text-center p-4 text-gray-500 text-sm">Hệ thống đang truy xuất dữ liệu, vui lòng chờ...</td></tr>';
          return;
     }
 
     data.forEach((row, index) => {
         let actionHtml = '';
         if (row.file_status === 'completed') {
-            actionHtml = `<button onclick="viewPDFBlob('${row.file_url}')" class="text-blue-600 font-bold underline cursor-pointer">📄 Xem File</button>`;
+            const safeFileName = `${row.so_chung_tu}.pdf`;
+            actionHtml = `
+                <div class="flex items-center justify-center space-x-1 sm:space-x-2">
+                    <button onclick="viewPDFBlob('${row.file_url}')" class="text-blue-600 font-semibold hover:text-blue-800 hover:underline cursor-pointer transition">Xem</button>
+                    <span class="text-gray-300">|</span>
+                    <a href="${row.file_url}?download=${safeFileName}" class="text-green-600 font-semibold hover:text-green-800 hover:underline cursor-pointer transition">Tải</a>
+                </div>
+            `;
         } else if (row.file_status === 'no_file') {
-            // Hiển thị text mờ đi khi không có file
-            actionHtml = `<span class="text-gray-400 italic">Không có file đính kèm</span>`;
+            actionHtml = `<span class="text-gray-400 italic">Trống</span>`;
         } else if (row.file_status === 'dvc_error' || row.file_status === 'supabase_error') {
             actionHtml = `<span class="text-red-500 font-semibold">Lỗi</span> - <button onclick="retryFile('${row.id}')" class="font-bold cursor-pointer hover:text-red-700">🔄 Tải lại</button>`;
         } else {
-            actionHtml = `<span class="text-gray-500 italic">⏳ Đang xử lý...</span>`;
+            actionHtml = `<span class="text-gray-500 italic">⏳ Đang tải...</span>`;
         }
 
         const tr = document.createElement('tr');
+        // bg-white quan trọng để khi cột sticky trượt qua các cột khác không bị đè chữ
+        tr.className = "text-[11px] sm:text-xs bg-white hover:bg-blue-50 transition-colors";
+        
         tr.innerHTML = `
             <td class="p-2 border text-center">${index + 1}</td>
             <td class="p-2 border font-medium">${row.so_chung_tu || ''}</td>
-            <td class="p-2 border">${row.chi_tiet || ''}</td>
+            
+            <td class="border p-0">
+                <div class="p-2 w-full h-full overflow-hidden text-ellipsis whitespace-nowrap" title="${row.chi_tiet || ''}">
+                    ${row.chi_tiet || ''}
+                </div>
+            </td>
+            
             <td class="p-2 border text-center">${row.sotk_so || ''}</td>
             <td class="p-2 border text-center">${row.ngay_hoan_thanh || ''}</td>
             <td class="p-2 border text-center">${row.ngay_tabmis_thanh_toan || ''}</td>
-            <td class="p-2 border text-center">${row.ten_trang_thai || ''}</td>
+            
+            <td class="border p-0">
+                <div class="p-2 w-full h-full overflow-hidden text-ellipsis whitespace-nowrap" title="${row.ten_trang_thai || ''}">
+                    ${row.ten_trang_thai || ''}
+                </div>
+            </td>
+            
             <td class="p-2 border font-mono text-right text-green-700 font-semibold">${row.tong_so_tien ? Number(row.tong_so_tien).toLocaleString('vi-VN') : ''}</td>
-            <td class="p-2 border text-center">${actionHtml}</td>
+            
+            <td class="p-2 border-l border-b text-center whitespace-nowrap sticky right-0 bg-inherit shadow-[-2px_0_5px_rgba(0,0,0,0.05)] z-10">
+                ${actionHtml}
+            </td>
         `;
         tbody.appendChild(tr);
     });
@@ -145,21 +168,30 @@ window.retryFile = async (id) => {
     await supabaseClient.from('ChiTietChungTu').update({ file_status: 'retry_pending' }).eq('id', id);
 };
 
-// Hàm fetch Blob và mở tab mới xem PDF
+// Bổ sung xử lý lỗi vào hàm fetch Blob
 window.viewPDFBlob = async (url) => {
     try {
         const response = await fetch(url);
+        
+        // Kiểm tra xem request có thành công không
+        if (!response.ok) {
+            throw new Error(`Mã lỗi HTTP: ${response.status}`);
+        }
+        
         const blob = await response.blob();
         
-        // Chỉ định chuẩn MIME type là application/pdf
+        // Cảnh báo nếu dữ liệu tải về không mang định dạng PDF
+        if (blob.type !== 'application/pdf' && !blob.type.includes('pdf')) {
+            console.warn("Cảnh báo: Tệp lấy về có thể không phải PDF hợp lệ. Loại MIME:", blob.type);
+        }
+
         const file = new Blob([blob], { type: 'application/pdf' });
         const fileURL = URL.createObjectURL(file);
         
-        // Mở trong tab mới
         window.open(fileURL, '_blank');
     } catch (error) {
-        alert("Không thể tải và hiển thị file PDF.");
-        console.error(error);
+        alert("Không thể mở file. Có thể dữ liệu gốc bị hỏng hoặc cấu hình bảo mật chặn tải (CORS).");
+        console.error("Chi tiết lỗi Blob:", error);
     }
 };
 
