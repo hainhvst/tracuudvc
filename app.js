@@ -162,3 +162,36 @@ window.viewPDFBlob = async (url) => {
         console.error(error);
     }
 };
+
+// ----------------------------------------------------
+// TỰ ĐỘNG ĐĂNG XUẤT SAU 15 PHÚT KHÔNG THAO TÁC
+// ----------------------------------------------------
+function setupInactivityTimeout() {
+    let timeoutTimer;
+    const INACTIVITY_TIME = 15 * 60 * 1000; // 15 phút
+
+    function resetTimer() {
+        clearTimeout(timeoutTimer);
+        timeoutTimer = setTimeout(autoLogout, INACTIVITY_TIME);
+    }
+
+    async function autoLogout() {
+        // Chỉ đăng xuất nếu đang có phiên đăng nhập
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (session) {
+            await supabaseClient.auth.signOut();
+            showLogin();
+            alert("Bạn đã không thao tác trong 15 phút. Hệ thống tự động đăng xuất để đảm bảo an toàn.");
+        }
+    }
+
+    // Lắng nghe các sự kiện thao tác của người dùng
+    window.onload = resetTimer;
+    document.onmousemove = resetTimer;
+    document.onkeydown = resetTimer;
+    document.onclick = resetTimer;
+    document.onscroll = resetTimer;
+}
+
+// Kích hoạt tính năng
+setupInactivityTimeout();
