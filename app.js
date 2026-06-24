@@ -99,9 +99,8 @@ document.getElementById('btnSearch').addEventListener('click', async () => {
     setupRealtimeListener(currentRequestId);
 });
 
-// Hàm thiết lập Realtime thông minh
+// Hàm thiết lập Realtime thông minh (Khắc phục lỗi Race Condition)
 function setupRealtimeListener(reqId) {
-    // Nếu người dùng bấm tra cứu liên tục, hủy kênh cũ để không bị loạn data
     if (currentChannel) {
         supabaseClient.removeChannel(currentChannel);
     }
@@ -115,27 +114,41 @@ function setupRealtimeListener(reqId) {
                 fetchAndRender(reqId);
             }
         )
-        // Lắng nghe 2: Khi BE báo trạng thái tổng của Request (Bắt chuẩn lỗi no_data)
+        // Lắng nghe 2: Khi BE báo trạng thái tổng của Request
         .on(
             'postgres_changes',
             { event: 'UPDATE', schema: 'public', table: 'TraCuuRequests', filter: `request_id=eq.${reqId}` },
             (payload) => {
-                if (payload.new.status === 'no_data') {
-                    document.getElementById('resultBody').innerHTML = `
-                        <tr><td colspan="9" class="text-center p-6 text-red-500 font-bold bg-red-50">Không tìm thấy chứng từ nào trong khoảng thời gian này.</td></tr>`;
-                } else if (payload.new.status === 'completed') {
-                    fetchAndRender(reqId);
-                }
+                handleRequestStatus(payload.new.status, reqId);
             }
         )
-        .subscribe();
+        // Bắt buộc kiểm tra lại trạng thái ngay khi vừa kết nối Websocket xong
+        .subscribe(async (status) => {
+            if (status === 'SUBSCRIBED') {
+                // Đọc lại DB để xem BE đã cập nhật trạng thái trong lúc FE đang mở kết nối không
+                const { data } = await supabaseClient.from('TraCuuRequests').select('status').eq('request_id', reqId).single();
+                if (data) {
+                    handleRequestStatus(data.status, reqId);
+                }
+            }
+        });
+}
+
+// Tách logic xử lý trạng thái ra một hàm riêng cho gọn
+function handleRequestStatus(status, reqId) {
+    if (status === 'no_data') {
+        document.getElementById('resultBody').innerHTML = `
+            <tr><td colspan="9" class="text-center p-6 text-red-500 font-bold bg-red-50">Không tìm thấy chứng từ nào trong khoảng thời gian này.</td></tr>`;
+    } else if (status === 'completed') {
+        fetchAndRender(reqId);
+    }
 }
 
 async function fetchAndRender(reqId) {
     const { data } = await supabaseClient.from('ChiTietChungTu').select('*').eq('request_id', reqId).order('so_chung_tu', { ascending: true });
     
     const tbody = document.getElementById('resultBody');
-    if (!data || data.length === 0) return; // Nếu mảng rỗng thì nhường cho sự kiện 'no_data' xử lý ở trên
+    if (!data || data.length === 0) return; // Nhường cho sự kiện 'no_data' xử lý
 
     tbody.innerHTML = ''; // Xoá cũ
 
