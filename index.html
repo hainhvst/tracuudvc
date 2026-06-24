@@ -24,44 +24,50 @@
         <p id="loginError" class="text-red-500 text-sm mt-3 text-center hidden font-medium">Sai tài khoản hoặc mật khẩu!</p>
     </div>
 
-    <div id="appSection" class="max-w-[1200px] mx-auto bg-white p-6 rounded-lg shadow-md hidden">
+    <div id="appSection" class="max-w-[1200px] mx-auto bg-white p-4 sm:p-6 rounded-lg shadow-md hidden">
         
         <div class="flex justify-between items-center mb-6 pb-4 border-b border-gray-200">
-            <h1 class="text-2xl font-bold text-[#1a56db]">🔍 Tra Cứu Hồ Sơ Tài Liệu – DVC KBNN</h1>
+            <h1 class="text-xl sm:text-2xl font-bold text-[#1a56db]">🔍 Tra Cứu DVC KBNN</h1>
             <button id="btnLogout" class="text-sm text-gray-500 hover:text-red-600 font-medium underline transition">Đăng xuất</button>
         </div>
         
-        <div class="flex flex-wrap gap-6 mb-6 items-end bg-[#f8fafc] p-4 rounded border border-gray-200">
-            <div>
+        <div class="flex flex-col sm:flex-row flex-wrap gap-4 mb-6 sm:items-end bg-[#f8fafc] p-4 rounded border border-gray-200">
+            <div class="w-full sm:w-auto">
                 <label class="block font-bold text-sm mb-1 text-gray-700">Mã QHNS:</label>
-                <input type="text" id="ma_qhns" class="border border-gray-300 p-2 rounded w-40 focus:outline-none focus:ring-2 focus:ring-blue-500" value="1005959">
+                <input type="text" id="ma_qhns" class="border border-gray-300 p-2 rounded w-full sm:w-32 focus:outline-none focus:ring-2 focus:ring-blue-500" value="1005959">
             </div>
-            <div>
-                <label class="block font-bold text-sm mb-1 text-gray-700">Từ ngày:</label>
-                <input type="date" id="tu_ngay" class="border border-gray-300 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <div class="w-full sm:w-auto flex flex-row gap-4">
+                <div class="w-1/2 sm:w-auto">
+                    <label class="block font-bold text-sm mb-1 text-gray-700">Từ ngày:</label>
+                    <input type="date" id="tu_ngay" class="border border-gray-300 p-2 rounded w-full focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="w-1/2 sm:w-auto">
+                    <label class="block font-bold text-sm mb-1 text-gray-700">Đến ngày:</label>
+                    <input type="date" id="den_ngay" class="border border-gray-300 p-2 rounded w-full focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
             </div>
-            <div>
-                <label class="block font-bold text-sm mb-1 text-gray-700">Đến ngày:</label>
-                <input type="date" id="den_ngay" class="border border-gray-300 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
-            </div>
-            <button id="btnSearch" class="bg-[#1a56db] text-white font-bold px-6 py-2 rounded hover:bg-blue-700 transition duration-200 shadow-sm">
+            <button id="btnSearch" class="w-full sm:w-auto bg-[#1a56db] text-white font-bold px-6 py-2 rounded hover:bg-blue-700 transition duration-200 shadow-sm mt-2 sm:mt-0">
                 Tra cứu
             </button>
         </div>
 
-        <div class="overflow-x-auto border border-gray-200 rounded">
-            <table class="w-full text-left border-collapse text-sm whitespace-nowrap">
+        <div class="overflow-x-auto border border-gray-200 rounded relative">
+            <table class="w-full text-left border-collapse text-[11px] sm:text-xs whitespace-nowrap min-w-[700px]">
                 <thead>
                     <tr class="bg-[#eef2ff] border-b-2 border-blue-200 text-gray-700">
-                        <th class="p-3 border-r font-semibold text-center">STT</th>
-                        <th class="p-3 border-r font-semibold">Số chứng từ</th>
-                        <th class="p-3 border-r font-semibold">Tên chứng từ</th>
-                        <th class="p-3 border-r font-semibold text-center">Số TK số</th>
-                        <th class="p-3 border-r font-semibold text-center">Ngày hoàn thành</th>
-                        <th class="p-3 border-r font-semibold text-center">Ngày Tabmis TT</th>
-                        <th class="p-3 border-r font-semibold text-center">Trạng thái</th>
-                        <th class="p-3 border-r font-semibold text-right">Tổng số tiền</th>
-                        <th class="p-3 font-semibold text-center">Đường dẫn / Tải về</th>
+                        <th class="p-2 border-r font-semibold text-center w-10">STT</th>
+                        <th class="p-2 border-r font-semibold">Số chứng từ</th>
+                        <th class="border-r font-semibold">
+                            <div class="p-2 w-[150px] min-w-[100px] resize-x overflow-hidden">Tên chứng từ</div>
+                        </th>
+                        <th class="p-2 border-r font-semibold text-center">Số TK số</th>
+                        <th class="p-2 border-r font-semibold text-center">Ngày HT</th>
+                        <th class="p-2 border-r font-semibold text-center">Ngày Tabmis</th>
+                        <th class="border-r font-semibold">
+                            <div class="p-2 w-[100px] min-w-[80px] resize-x overflow-hidden">Trạng thái</div>
+                        </th>
+                        <th class="p-2 border-r font-semibold text-right">Số tiền</th>
+                        <th class="p-2 font-semibold text-center sticky right-0 bg-[#eef2ff] border-l border-blue-200 shadow-[-2px_0_5px_rgba(0,0,0,0.05)] z-10">Hành động</th>
                     </tr>
                 </thead>
                 <tbody id="resultBody" class="divide-y divide-gray-200">
